@@ -20,14 +20,13 @@ package org.apache.seatunnel.e2e.common.util;
 import org.apache.seatunnel.shade.com.typesafe.config.Config;
 import org.apache.seatunnel.shade.com.typesafe.config.ConfigFactory;
 import org.apache.seatunnel.shade.com.typesafe.config.ConfigResolveOptions;
+import org.apache.seatunnel.shade.org.apache.commons.lang3.StringUtils;
 
 import org.apache.seatunnel.api.configuration.ReadonlyConfig;
 import org.apache.seatunnel.api.table.factory.FactoryException;
 import org.apache.seatunnel.common.constants.PluginType;
 import org.apache.seatunnel.e2e.common.container.EngineType;
 import org.apache.seatunnel.e2e.common.container.TestContainer;
-
-import org.apache.commons.lang3.StringUtils;
 
 import org.junit.jupiter.api.Assertions;
 import org.testcontainers.containers.Container;
@@ -63,6 +62,7 @@ import java.util.TreeSet;
 import java.util.stream.Collectors;
 
 import static org.apache.seatunnel.e2e.common.container.TestContainerId.FLINK_1_18;
+import static org.apache.seatunnel.e2e.common.container.TestContainerId.FLINK_1_20;
 import static org.apache.seatunnel.e2e.common.container.TestContainerId.SPARK_3_3;
 
 @Slf4j
@@ -384,6 +384,7 @@ public final class ContainerUtil {
                                 container -> {
                                     if (testAllContainer
                                             || container.identifier().equals(FLINK_1_18)
+                                            || container.identifier().equals(FLINK_1_20)
                                             || container.identifier().equals(SPARK_3_3)) {
                                         return true;
                                     }

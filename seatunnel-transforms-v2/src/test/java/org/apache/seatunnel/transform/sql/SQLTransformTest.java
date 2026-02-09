@@ -500,6 +500,30 @@ public class SQLTransformTest {
     }
 
     @Test
+    public void testCastStringToIntErrorFromConfig() {
+        String tableName = "test_cast_error";
+        String[] fields = new String[] {"id", "name", "age"};
+        SeaTunnelDataType[] fieldTypes =
+                new SeaTunnelDataType[] {
+                    BasicType.INT_TYPE, BasicType.STRING_TYPE, BasicType.INT_TYPE
+                };
+        CatalogTable table =
+                CatalogTableUtil.getCatalogTable(
+                        tableName, new SeaTunnelRowType(fields, fieldTypes));
+
+        ReadonlyConfig config =
+                ReadonlyConfig.fromMap(
+                        Collections.singletonMap(
+                                "query", "select cast(name as int) as name, id, age from dual"));
+
+        SQLTransform sqlTransform = new SQLTransform(config, table);
+
+        Assertions.assertThrows(
+                TransformException.class,
+                () -> sqlTransform.transformRow(new SeaTunnelRow(new Object[] {1, "not_int", 18})));
+    }
+
+    @Test
     public void testCoalesceTypeConversion() {
         String tableName = "test";
         String[] fields = new String[] {"id", "stringField", "intField", "doubleField"};
@@ -759,5 +783,381 @@ public class SQLTransformTest {
                         throw e;
                     }
                 });
+    }
+
+    @Test
+    public void testTrimWithCastExpression() {
+        // Test TRIM(CAST(id AS VARCHAR)) - fix for ClassCastException bug
+        String tableName = "test";
+        String[] fields = new String[] {"id", "name"};
+        CatalogTable table =
+                CatalogTableUtil.getCatalogTable(
+                        tableName,
+                        new SeaTunnelRowType(
+                                fields,
+                                new SeaTunnelDataType[] {
+                                    BasicType.INT_TYPE, BasicType.STRING_TYPE
+                                }));
+
+        ReadonlyConfig config =
+                ReadonlyConfig.fromMap(
+                        Collections.singletonMap(
+                                "query",
+                                "select id, TRIM(CAST(id AS VARCHAR)) as id_str, name from dual"));
+
+        SQLTransform sqlTransform = new SQLTransform(config, table);
+        List<SeaTunnelRow> result =
+                sqlTransform.transformRow(new SeaTunnelRow(new Object[] {123, "test"}));
+
+        Assertions.assertNotNull(result);
+        Assertions.assertEquals(1, result.size());
+        Assertions.assertEquals(123, result.get(0).getField(0));
+        Assertions.assertEquals("123", result.get(0).getField(1));
+        Assertions.assertEquals("test", result.get(0).getField(2));
+    }
+
+    @Test
+    public void testTrimWithMultipleCastExpressions() {
+        // Test multiple TRIM(CAST(...)) in one query
+        String tableName = "test";
+        String[] fields = new String[] {"int_val", "long_val", "double_val"};
+        CatalogTable table =
+                CatalogTableUtil.getCatalogTable(
+                        tableName,
+                        new SeaTunnelRowType(
+                                fields,
+                                new SeaTunnelDataType[] {
+                                    BasicType.INT_TYPE, BasicType.LONG_TYPE, BasicType.DOUBLE_TYPE
+                                }));
+
+        ReadonlyConfig config =
+                ReadonlyConfig.fromMap(
+                        Collections.singletonMap(
+                                "query",
+                                "select "
+                                        + "TRIM(CAST(int_val AS VARCHAR)) as int_str, "
+                                        + "TRIM(CAST(long_val AS VARCHAR)) as long_str, "
+                                        + "TRIM(CAST(double_val AS VARCHAR)) as double_str "
+                                        + "from dual"));
+
+        SQLTransform sqlTransform = new SQLTransform(config, table);
+        List<SeaTunnelRow> result =
+                sqlTransform.transformRow(new SeaTunnelRow(new Object[] {123, 456L, 789.12}));
+
+        Assertions.assertNotNull(result);
+        Assertions.assertEquals(1, result.size());
+        Assertions.assertEquals("123", result.get(0).getField(0));
+        Assertions.assertEquals("456", result.get(0).getField(1));
+        Assertions.assertEquals("789.12", result.get(0).getField(2));
+    }
+
+    @Test
+    public void testTrimWithNestedFunctions() {
+        // Test TRIM with nested CAST and other functions
+        String tableName = "test";
+        String[] fields = new String[] {"id", "name"};
+        CatalogTable table =
+                CatalogTableUtil.getCatalogTable(
+                        tableName,
+                        new SeaTunnelRowType(
+                                fields,
+                                new SeaTunnelDataType[] {
+                                    BasicType.INT_TYPE, BasicType.STRING_TYPE
+                                }));
+
+        ReadonlyConfig config =
+                ReadonlyConfig.fromMap(
+                        Collections.singletonMap(
+                                "query",
+                                "select id, UPPER(TRIM(CAST(id AS VARCHAR))) as id_upper from dual"));
+
+        SQLTransform sqlTransform = new SQLTransform(config, table);
+        List<SeaTunnelRow> result =
+                sqlTransform.transformRow(new SeaTunnelRow(new Object[] {123, "test"}));
+
+        Assertions.assertNotNull(result);
+        Assertions.assertEquals(1, result.size());
+        Assertions.assertEquals(123, result.get(0).getField(0));
+        Assertions.assertEquals("123", result.get(0).getField(1));
+    }
+
+    @Test
+    public void testTrimWithCastInWhereClause() {
+        // Test TRIM(CAST(...)) in WHERE clause
+        String tableName = "test";
+        String[] fields = new String[] {"id", "name"};
+        CatalogTable table =
+                CatalogTableUtil.getCatalogTable(
+                        tableName,
+                        new SeaTunnelRowType(
+                                fields,
+                                new SeaTunnelDataType[] {
+                                    BasicType.INT_TYPE, BasicType.STRING_TYPE
+                                }));
+
+        ReadonlyConfig config =
+                ReadonlyConfig.fromMap(
+                        Collections.singletonMap(
+                                "query",
+                                "select id, name from dual where TRIM(CAST(id AS VARCHAR)) = '123'"));
+
+        SQLTransform sqlTransform = new SQLTransform(config, table);
+
+        // Should match
+        List<SeaTunnelRow> result =
+                sqlTransform.transformRow(new SeaTunnelRow(new Object[] {123, "test"}));
+        Assertions.assertNotNull(result);
+        Assertions.assertEquals(1, result.size());
+        Assertions.assertEquals(123, result.get(0).getField(0));
+        Assertions.assertEquals("test", result.get(0).getField(1));
+
+        // Should not match
+        result = sqlTransform.transformRow(new SeaTunnelRow(new Object[] {456, "test2"}));
+        Assertions.assertNull(result);
+    }
+
+    @Test
+    public void testTrimWithCastNull() {
+        // Test TRIM(CAST(NULL AS VARCHAR))
+        String tableName = "test";
+        String[] fields = new String[] {"id", "name"};
+        CatalogTable table =
+                CatalogTableUtil.getCatalogTable(
+                        tableName,
+                        new SeaTunnelRowType(
+                                fields,
+                                new SeaTunnelDataType[] {
+                                    BasicType.INT_TYPE, BasicType.STRING_TYPE
+                                }));
+
+        ReadonlyConfig config =
+                ReadonlyConfig.fromMap(
+                        Collections.singletonMap(
+                                "query",
+                                "select id, TRIM(CAST(id AS VARCHAR)) as id_str from dual"));
+
+        SQLTransform sqlTransform = new SQLTransform(config, table);
+        List<SeaTunnelRow> result =
+                sqlTransform.transformRow(new SeaTunnelRow(new Object[] {null, "test"}));
+
+        Assertions.assertNotNull(result);
+        Assertions.assertEquals(1, result.size());
+        Assertions.assertNull(result.get(0).getField(0));
+        Assertions.assertNull(result.get(0).getField(1)); // TRIM(CAST(NULL)) should be NULL
+    }
+
+    @Test
+    public void testTrimWithConcatFunction() {
+        // Test TRIM(CONCAT(...)) - function inside TRIM
+        String tableName = "test";
+        String[] fields = new String[] {"first_name", "last_name"};
+        CatalogTable table =
+                CatalogTableUtil.getCatalogTable(
+                        tableName,
+                        new SeaTunnelRowType(
+                                fields,
+                                new SeaTunnelDataType[] {
+                                    BasicType.STRING_TYPE, BasicType.STRING_TYPE
+                                }));
+
+        ReadonlyConfig config =
+                ReadonlyConfig.fromMap(
+                        Collections.singletonMap(
+                                "query",
+                                "select TRIM(CONCAT(first_name, ' ', last_name)) as full_name from dual"));
+
+        SQLTransform sqlTransform = new SQLTransform(config, table);
+        List<SeaTunnelRow> result =
+                sqlTransform.transformRow(new SeaTunnelRow(new Object[] {"John", "Doe"}));
+
+        Assertions.assertNotNull(result);
+        Assertions.assertEquals(1, result.size());
+        Assertions.assertEquals("John Doe", result.get(0).getField(0));
+    }
+
+    @Test
+    public void testTrimWithSubstringFunction() {
+        // Test TRIM(SUBSTRING(...)) - another function inside TRIM
+        String tableName = "test";
+        String[] fields = new String[] {"text"};
+        CatalogTable table =
+                CatalogTableUtil.getCatalogTable(
+                        tableName,
+                        new SeaTunnelRowType(
+                                fields, new SeaTunnelDataType[] {BasicType.STRING_TYPE}));
+
+        ReadonlyConfig config =
+                ReadonlyConfig.fromMap(
+                        Collections.singletonMap(
+                                "query",
+                                "select TRIM(SUBSTRING(text, 1, 5)) as trimmed from dual"));
+
+        SQLTransform sqlTransform = new SQLTransform(config, table);
+        List<SeaTunnelRow> result =
+                sqlTransform.transformRow(new SeaTunnelRow(new Object[] {"  Hello World  "}));
+
+        Assertions.assertNotNull(result);
+        Assertions.assertEquals(1, result.size());
+        Assertions.assertEquals("Hel", result.get(0).getField(0));
+    }
+
+    @Test
+    public void testTrimWithReplaceFunction() {
+        // Test TRIM(REPLACE(...)) - yet another function inside TRIM
+        String tableName = "test";
+        String[] fields = new String[] {"text"};
+        CatalogTable table =
+                CatalogTableUtil.getCatalogTable(
+                        tableName,
+                        new SeaTunnelRowType(
+                                fields, new SeaTunnelDataType[] {BasicType.STRING_TYPE}));
+
+        ReadonlyConfig config =
+                ReadonlyConfig.fromMap(
+                        Collections.singletonMap(
+                                "query",
+                                "select TRIM(REPLACE(text, 'old', 'new')) as replaced from dual"));
+
+        SQLTransform sqlTransform = new SQLTransform(config, table);
+        List<SeaTunnelRow> result =
+                sqlTransform.transformRow(new SeaTunnelRow(new Object[] {" old text "}));
+
+        Assertions.assertNotNull(result);
+        Assertions.assertEquals(1, result.size());
+        Assertions.assertEquals("new text", result.get(0).getField(0));
+    }
+
+    @Test
+    public void testTrimWithArithmeticExpression() {
+        // Test TRIM with arithmetic expression (id + 100)
+        String tableName = "test";
+        String[] fields = new String[] {"id", "name"};
+        CatalogTable table =
+                CatalogTableUtil.getCatalogTable(
+                        tableName,
+                        new SeaTunnelRowType(
+                                fields,
+                                new SeaTunnelDataType[] {
+                                    BasicType.INT_TYPE, BasicType.STRING_TYPE
+                                }));
+
+        ReadonlyConfig config =
+                ReadonlyConfig.fromMap(
+                        Collections.singletonMap(
+                                "query",
+                                "select TRIM(CAST(id + 100 AS VARCHAR)) as result from dual"));
+
+        SQLTransform sqlTransform = new SQLTransform(config, table);
+        List<SeaTunnelRow> result =
+                sqlTransform.transformRow(new SeaTunnelRow(new Object[] {23, "test"}));
+
+        Assertions.assertNotNull(result);
+        Assertions.assertEquals(1, result.size());
+        Assertions.assertEquals("123", result.get(0).getField(0));
+    }
+
+    @Test
+    public void testTrimWithCoalesceFunction() {
+        // Test TRIM(COALESCE(...)) - system function inside TRIM
+        String tableName = "test";
+        String[] fields = new String[] {"name", "default_name"};
+        CatalogTable table =
+                CatalogTableUtil.getCatalogTable(
+                        tableName,
+                        new SeaTunnelRowType(
+                                fields,
+                                new SeaTunnelDataType[] {
+                                    BasicType.STRING_TYPE, BasicType.STRING_TYPE
+                                }));
+
+        ReadonlyConfig config =
+                ReadonlyConfig.fromMap(
+                        Collections.singletonMap(
+                                "query",
+                                "select TRIM(COALESCE(name, default_name)) as result from dual"));
+
+        SQLTransform sqlTransform = new SQLTransform(config, table);
+
+        List<SeaTunnelRow> result =
+                sqlTransform.transformRow(new SeaTunnelRow(new Object[] {" John ", "Default"}));
+        Assertions.assertEquals("John", result.get(0).getField(0));
+
+        result = sqlTransform.transformRow(new SeaTunnelRow(new Object[] {null, " Default "}));
+        Assertions.assertEquals("Default", result.get(0).getField(0));
+    }
+
+    @Test
+    public void testNestedNumericAndStringFunctions() {
+        String tableName = "test_nested_functions";
+        String[] fields = new String[] {"id", "score", "name"};
+        CatalogTable table =
+                CatalogTableUtil.getCatalogTable(
+                        tableName,
+                        new SeaTunnelRowType(
+                                fields,
+                                new SeaTunnelDataType[] {
+                                    BasicType.INT_TYPE, BasicType.DOUBLE_TYPE, BasicType.STRING_TYPE
+                                }));
+
+        ReadonlyConfig config =
+                ReadonlyConfig.fromMap(
+                        Collections.singletonMap(
+                                "query",
+                                "select id,"
+                                        + " CONCAT(TO_CHAR(ROUND(ABS(score), 1)), '_', UPPER(TRIM(name))) as formatted"
+                                        + " from dual"
+                                        + " where ROUND(ABS(score), 0) > 0 and REGEXP_LIKE(TRIM(name), '^a', 'i')"));
+
+        SQLTransform sqlTransform = new SQLTransform(config, table);
+
+        // should match: score != 0 and name starts with a/A
+        List<SeaTunnelRow> result =
+                sqlTransform.transformRow(new SeaTunnelRow(new Object[] {1, -1.23d, " alice "}));
+        Assertions.assertNotNull(result);
+        Assertions.assertEquals(1, result.size());
+        Assertions.assertEquals(1, result.get(0).getField(0));
+        Assertions.assertEquals("1.2_ALICE", result.get(0).getField(1));
+
+        // filtered out by score == 0
+        result = sqlTransform.transformRow(new SeaTunnelRow(new Object[] {2, 0.0d, " alice "}));
+        Assertions.assertNull(result);
+
+        // filtered out by name not matching regexp
+        result = sqlTransform.transformRow(new SeaTunnelRow(new Object[] {3, 2.0d, " Bob "}));
+        Assertions.assertNull(result);
+    }
+
+    @Test
+    public void testNestedArrayFunctions() {
+        String tableName = "test_array_nested";
+        String[] fields = new String[] {"age"};
+        CatalogTable table =
+                CatalogTableUtil.getCatalogTable(
+                        tableName,
+                        new SeaTunnelRowType(fields, new SeaTunnelDataType[] {BasicType.INT_TYPE}));
+
+        ReadonlyConfig config =
+                ReadonlyConfig.fromMap(
+                        Collections.singletonMap(
+                                "query",
+                                "select ARRAY(age, 1, 2) as ages"
+                                        + " from dual"
+                                        + " where age >= 0"));
+
+        SQLTransform sqlTransform = new SQLTransform(config, table);
+
+        // age = 5 -> ARRAY(5,1,2) pass filter
+        List<SeaTunnelRow> result = sqlTransform.transformRow(new SeaTunnelRow(new Object[] {5}));
+        Assertions.assertNotNull(result);
+        Assertions.assertEquals(1, result.size());
+        Object[] ages = (Object[]) result.get(0).getField(0);
+        Assertions.assertEquals(3, ages.length);
+        Assertions.assertEquals(5, ((Number) ages[0]).intValue());
+        Assertions.assertEquals(1, ((Number) ages[1]).intValue());
+        Assertions.assertEquals(2, ((Number) ages[2]).intValue());
+
+        // age = -1 -> ARRAY(-1,1,2) but filtered out by age >= 0
+        result = sqlTransform.transformRow(new SeaTunnelRow(new Object[] {-1}));
+        Assertions.assertNull(result);
     }
 }

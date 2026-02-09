@@ -48,6 +48,20 @@ public class JdbcCommonOptions {
                     .defaultValue(30)
                     .withDescription("connection check time second");
 
+    public static final Option<Integer> SOCKET_TIMEOUT_MS =
+            Options.key("socket_timeout_ms")
+                    .intType()
+                    .defaultValue(1000 * 60 * 60 * 24)
+                    .withDescription(
+                            "Socket timeout in milliseconds for reading data from the server. Default is 24h. Set to 0 for no timeout.");
+
+    public static final Option<Integer> CONNECT_TIMEOUT_MS =
+            Options.key("connect_timeout_ms")
+                    .intType()
+                    .defaultValue(1000 * 60 * 60 * 24)
+                    .withDescription(
+                            "Connection timeout in milliseconds for establishing connection to the server. Default is 24h. Set to 0 for no timeout.");
+
     public static final Option<String> COMPATIBLE_MODE =
             Options.key("compatible_mode")
                     .stringType()
@@ -129,6 +143,20 @@ public class JdbcCommonOptions {
                     .mapType()
                     .noDefaultValue()
                     .withDescription("additional connection configuration parameters");
+    public static final Option<String> ACCESS_KEY_ID =
+            Options.key("access_key_id")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription("access_key_id");
+
+    public static final Option<String> SECRET_ACCESS_KEY =
+            Options.key("secret_access_key")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription("secret_access_key");
+
+    public static final Option<String> REGION =
+            Options.key("region").stringType().noDefaultValue().withDescription("region");
 
     public static final OptionRule.Builder BASE_CATALOG_RULE =
             OptionRule.builder()

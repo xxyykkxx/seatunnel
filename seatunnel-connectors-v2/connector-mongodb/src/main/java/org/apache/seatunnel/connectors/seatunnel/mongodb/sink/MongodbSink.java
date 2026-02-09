@@ -19,25 +19,37 @@ package org.apache.seatunnel.connectors.seatunnel.mongodb.sink;
 
 import org.apache.seatunnel.api.serialization.DefaultSerializer;
 import org.apache.seatunnel.api.serialization.Serializer;
+import org.apache.seatunnel.api.sink.DataSaveMode;
+import org.apache.seatunnel.api.sink.SaveModeHandler;
+import org.apache.seatunnel.api.sink.SchemaSaveMode;
 import org.apache.seatunnel.api.sink.SeaTunnelSink;
 import org.apache.seatunnel.api.sink.SinkAggregatedCommitter;
 import org.apache.seatunnel.api.sink.SinkWriter;
+import org.apache.seatunnel.api.sink.SupportMultiTableSink;
+import org.apache.seatunnel.api.sink.SupportSaveMode;
+import org.apache.seatunnel.api.table.catalog.Catalog;
 import org.apache.seatunnel.api.table.catalog.CatalogTable;
 import org.apache.seatunnel.api.table.type.SeaTunnelRow;
+import org.apache.seatunnel.common.exception.SeaTunnelRuntimeException;
+import org.apache.seatunnel.connectors.seatunnel.mongodb.catalog.MongodbCatalog;
+import org.apache.seatunnel.connectors.seatunnel.mongodb.config.MongodbSinkOptions;
 import org.apache.seatunnel.connectors.seatunnel.mongodb.serde.RowDataDocumentSerializer;
 import org.apache.seatunnel.connectors.seatunnel.mongodb.serde.RowDataToBsonConverters;
 import org.apache.seatunnel.connectors.seatunnel.mongodb.sink.commit.MongodbSinkAggregatedCommitter;
+import org.apache.seatunnel.connectors.seatunnel.mongodb.sink.savemode.MongodbSaveModeHandler;
 import org.apache.seatunnel.connectors.seatunnel.mongodb.sink.state.DocumentBulk;
 import org.apache.seatunnel.connectors.seatunnel.mongodb.sink.state.MongodbAggregatedCommitInfo;
 import org.apache.seatunnel.connectors.seatunnel.mongodb.sink.state.MongodbCommitInfo;
 
 import java.util.Optional;
 
-import static org.apache.seatunnel.connectors.seatunnel.mongodb.config.MongodbConfig.CONNECTOR_IDENTITY;
+import static org.apache.seatunnel.api.common.SeaTunnelAPIErrorCode.HANDLE_SAVE_MODE_FAILED;
 
 public class MongodbSink
         implements SeaTunnelSink<
-                SeaTunnelRow, DocumentBulk, MongodbCommitInfo, MongodbAggregatedCommitInfo> {
+                        SeaTunnelRow, DocumentBulk, MongodbCommitInfo, MongodbAggregatedCommitInfo>,
+                SupportSaveMode,
+                SupportMultiTableSink {
 
     private final MongodbWriterOptions options;
 
@@ -50,12 +62,11 @@ public class MongodbSink
 
     @Override
     public String getPluginName() {
-        return CONNECTOR_IDENTITY;
+        return MongodbSinkOptions.CONNECTOR_IDENTITY;
     }
 
     @Override
-    public SinkWriter<SeaTunnelRow, MongodbCommitInfo, DocumentBulk> createWriter(
-            SinkWriter.Context context) {
+    public MongodbWriter createWriter(SinkWriter.Context context) {
         return new MongodbWriter(
                 new RowDataDocumentSerializer(
                         RowDataToBsonConverters.createConverter(catalogTable.getSeaTunnelRowType()),
@@ -91,5 +102,27 @@ public class MongodbSink
     @Override
     public Optional<CatalogTable> getWriteCatalogTable() {
         return Optional.ofNullable(catalogTable);
+    }
+
+    @Override
+    public Optional<SaveModeHandler> getSaveModeHandler() {
+        String url = options.getConnectString();
+        String database = options.getDatabase();
+        if (catalogTable != null) {
+            Optional<Catalog> catalogOptional =
+                    Optional.of(
+                            new MongodbCatalog(
+                                    MongodbSinkOptions.CONNECTOR_IDENTITY, url, database));
+            try {
+                DataSaveMode dataSaveMode = options.getDataSaveMode();
+                Catalog catalog = catalogOptional.get();
+                return Optional.of(
+                        new MongodbSaveModeHandler(
+                                SchemaSaveMode.IGNORE, dataSaveMode, catalog, catalogTable));
+            } catch (Exception e) {
+                throw new SeaTunnelRuntimeException(HANDLE_SAVE_MODE_FAILED, e);
+            }
+        }
+        return Optional.empty();
     }
 }

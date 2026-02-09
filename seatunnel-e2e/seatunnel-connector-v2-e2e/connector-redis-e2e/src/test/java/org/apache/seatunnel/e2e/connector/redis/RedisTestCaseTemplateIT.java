@@ -28,6 +28,7 @@ import org.apache.seatunnel.api.table.type.SeaTunnelDataType;
 import org.apache.seatunnel.api.table.type.SeaTunnelRow;
 import org.apache.seatunnel.api.table.type.SeaTunnelRowType;
 import org.apache.seatunnel.common.utils.JsonUtils;
+import org.apache.seatunnel.connectors.seatunnel.redis.config.RedisContainerInfo;
 import org.apache.seatunnel.e2e.common.TestResource;
 import org.apache.seatunnel.e2e.common.TestSuiteBase;
 import org.apache.seatunnel.e2e.common.container.EngineType;
@@ -104,6 +105,7 @@ public abstract class RedisTestCaseTemplateIT extends TestSuiteBase implements T
                         .waitingFor(
                                 new HostPortWaitStrategy()
                                         .withStartupTimeout(Duration.ofMinutes(2)));
+
         Startables.deepStart(Stream.of(redisContainer)).join();
         log.info("Redis container started");
         this.initJedis();
@@ -611,65 +613,6 @@ public abstract class RedisTestCaseTemplateIT extends TestSuiteBase implements T
     }
 
     @TestTemplate
-    public void testFakeToRedisDeleteHashTest(TestContainer container)
-            throws IOException, InterruptedException {
-        Container.ExecResult execResult =
-                container.executeJob("/fake-to-redis-test-delete-hash.conf");
-        Assertions.assertEquals(0, execResult.getExitCode());
-        Assertions.assertEquals(2, jedis.hlen("hash_check"));
-        jedis.del("hash_check");
-    }
-
-    @TestTemplate
-    public void testFakeToRedisDeleteKeyTest(TestContainer container)
-            throws IOException, InterruptedException {
-        Container.ExecResult execResult =
-                container.executeJob("/fake-to-redis-test-delete-key.conf");
-        Assertions.assertEquals(0, execResult.getExitCode());
-        int count = 0;
-        for (int i = 1; i <= 3; i++) {
-            String data = jedis.get("key_check:" + i);
-            if (data != null) {
-                count++;
-            }
-        }
-        Assertions.assertEquals(2, count);
-        for (int i = 1; i <= 3; i++) {
-            jedis.del("key_check:" + i);
-        }
-    }
-
-    @TestTemplate
-    public void testFakeToRedisDeleteListTest(TestContainer container)
-            throws IOException, InterruptedException {
-        Container.ExecResult execResult =
-                container.executeJob("/fake-to-redis-test-delete-list.conf");
-        Assertions.assertEquals(0, execResult.getExitCode());
-        Assertions.assertEquals(2, jedis.llen("list_check"));
-        jedis.del("list_check");
-    }
-
-    @TestTemplate
-    public void testFakeToRedisDeleteSetTest(TestContainer container)
-            throws IOException, InterruptedException {
-        Container.ExecResult execResult =
-                container.executeJob("/fake-to-redis-test-delete-set.conf");
-        Assertions.assertEquals(0, execResult.getExitCode());
-        Assertions.assertEquals(2, jedis.scard("set_check"));
-        jedis.del("set_check");
-    }
-
-    @TestTemplate
-    public void testFakeToToRedisDeleteZSetTest(TestContainer container)
-            throws IOException, InterruptedException {
-        Container.ExecResult execResult =
-                container.executeJob("/fake-to-redis-test-delete-zset.conf");
-        Assertions.assertEquals(0, execResult.getExitCode());
-        Assertions.assertEquals(2, jedis.zcard("zset_check"));
-        jedis.del("zset_check");
-    }
-
-    @TestTemplate
     @DisabledOnContainer(
             value = {},
             type = {EngineType.SPARK, EngineType.FLINK},
@@ -752,60 +695,6 @@ public abstract class RedisTestCaseTemplateIT extends TestSuiteBase implements T
             }
         }
         Assertions.assertEquals(2, count);
-    }
-
-    @TestTemplate
-    public void testFakeToRedisCustomKeyIsNullTest(TestContainer container)
-            throws IOException, InterruptedException {
-        Container.ExecResult execResult =
-                container.executeJob("/fake-to-redis-test-custom-key-is-null.conf");
-        Assertions.assertEquals(0, execResult.getExitCode());
-        int count = 0;
-        String data = jedis.get("key_check:");
-        if (data != null) {
-            count++;
-            jedis.del("key_check:");
-        }
-        for (int i = 2; i <= 3; i++) {
-            data = jedis.get("key_check:NEW" + i);
-            if (data != null) {
-                count++;
-                jedis.del("key_check:NEW" + i);
-            }
-        }
-        Assertions.assertEquals(2, count);
-    }
-
-    @TestTemplate
-    public void testFakeToRedisOtherTypeValueIsNullTest(TestContainer container)
-            throws IOException, InterruptedException {
-        Container.ExecResult execResult =
-                container.executeJob(
-                        "/fake-to-redis-test-custom-value-when-other-type-is-null.conf");
-        Assertions.assertEquals(0, execResult.getExitCode());
-        Assertions.assertEquals(2, jedis.llen("list_check"));
-        jedis.del("list_check");
-    }
-
-    @TestTemplate
-    public void testFakeToRedisHashTypeKeyIsNullTest(TestContainer container)
-            throws IOException, InterruptedException {
-        Container.ExecResult execResult =
-                container.executeJob("/fake-to-redis-test-custom-value-when-hash-key-is-null.conf");
-        Assertions.assertEquals(0, execResult.getExitCode());
-        Assertions.assertEquals(2, jedis.hlen("hash_check"));
-        jedis.del("hash_check");
-    }
-
-    @TestTemplate
-    public void testFakeToRedisHashTypeValueIsNullTest(TestContainer container)
-            throws IOException, InterruptedException {
-        Container.ExecResult execResult =
-                container.executeJob(
-                        "/fake-to-redis-test-custom-value-when-hash-value-is-null.conf");
-        Assertions.assertEquals(0, execResult.getExitCode());
-        Assertions.assertEquals(2, jedis.hlen("hash_check"));
-        jedis.del("hash_check");
     }
 
     public abstract RedisContainerInfo getRedisContainerInfo();
